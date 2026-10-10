@@ -41,7 +41,9 @@ dimmable white bulbs and smart plugs. Tested with two Living Colors Bloom (`LLC0
 - Color-temperature slider on white-ambiance bulbs; brightness only on dimmable bulbs;
   just the switch on plugs.
 - Unreachable lights are flagged. Changes made elsewhere show up within 10 seconds.
-- A gear button with bridge details, and options to pair a different bridge or forget this one.
+- Light management, like the old official app: add new lights (search, by serial number,
+  or Touchlink), rename them, blink one to find it, and remove one from the bridge.
+- A gear button with bridge details, rename the bridge, pair a different one or forget it.
 
 ## Three ways to run it
 
@@ -96,6 +98,17 @@ PowerShell: `$env:PORT = 9000; npm start`.
 The pairing is stored on the server, so every browser that opens the page is paired.
 With `--lan`, anyone on your network who can open the page can control your lights.
 
+## Managing lights
+
+- **Pencil on a light's card:** rename it, **Blink to find it**, or **Remove from bridge**.
+- **Gear → Add lights:** switch the new lights on and tap **Search for new lights**. The
+  bridge searches for about a minute and new lights appear as they're found.
+  - A light that was paired to another bridge won't show up in a plain search. Type its
+    serial number (the 6 characters printed on the bulb) first, or hold it within a few
+    feet of the bridge and tap **Touchlink**. Touchlink needs bridge firmware that
+    supports it; the app says so if yours doesn't.
+- **Gear → Bridge name:** rename the bridge (4 to 16 characters).
+
 ## Finding your bridge's IP
 
 - **Search network** in any of the three versions.
@@ -112,7 +125,9 @@ Website:  web/ on GitHub Pages ──fetch()────────────
 
 Hue v1 API calls used: `POST /api` to pair, `GET /api/<user>/lights`,
 `PUT /api/<user>/lights/<id>/state`, `PUT /api/<user>/groups/0/action` for all lights,
-and `GET /api/<user>/config` for bridge details. Discovery is SSDP plus a scan of the
+`GET /api/<user>/config` for bridge details, and for management `POST /api/<user>/lights`
+plus `GET /api/<user>/lights/new` (search), `PUT /api/<user>/lights/<id>` (rename),
+`DELETE /api/<user>/lights/<id>` and `PUT /api/<user>/config` (bridge name, touchlink). Discovery is SSDP plus a scan of the
 local /24 for `/description.xml` (app and Node), or a scan of common home ranges for
 `/api/config` (website). Slider changes are merged per light and sent at most every 100 ms.
 
@@ -128,7 +143,8 @@ whitelist until you `DELETE /api/<user>/config/whitelist/<user>`.
 
 ```sh
 npm test        # server tests against the fake bridge
-npm run mock    # fake v1 bridge on port 8123 with two lights (link button "pressed" on the 3rd try)
+npm run mock    # fake v1 bridge on port 8123 with two lights (link button "pressed" on the 3rd try;
+                # a search for new lights finds one after a few seconds)
 npm run site    # builds the website into site/
 android/build.sh   # builds the APK on Ubuntu/WSL, no Gradle (see the script for the apt packages)
 ```

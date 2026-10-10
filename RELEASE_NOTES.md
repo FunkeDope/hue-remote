@@ -1,5 +1,15 @@
 # Release notes
 
+## Unreleased
+
+- **Light management**, matching what the old official app's settings could do:
+  - **Add lights** from the bridge sheet: search for new lights, add by serial number,
+    or Touchlink the closest light. New lights show up as the search finds them.
+  - A pencil on each light's card to **rename** it, **blink** it to find it, or
+    **remove** it from the bridge.
+  - **Rename the bridge.**
+- The fake bridge (`npm run mock`) fakes all of that too, and `npm test` covers it.
+
 ## 1.0.0 (2026-10-10)
 
 First release. Pairs with a Hue bridge over its local v1 API and controls your lights on

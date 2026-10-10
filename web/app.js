@@ -23,6 +23,8 @@ const S = {
   view: '',
   pairing: null,       // { cancelled } while waiting for the link button
   returnToLights: false,
+  panel: '',           // which sheet panel is open: bridge, light or add
+  sheetLight: '',      // light id shown in the light panel
 };
 
 // ---------- transport ----------
@@ -338,6 +340,7 @@ function mergeLights(data) {
   }
   S.lights = next;
   renderLights();
+  if (S.panel === 'light' && !$('sheet').hidden && !S.lights[S.sheetLight]) closeSheet();
 }
 
 // ---------- light cards ----------
@@ -388,6 +391,8 @@ function buildCard(target) {
   };
   q('.swatch').addEventListener('click', toggleFine);
   q('.title').addEventListener('click', toggleFine);
+  q('.manage').hidden = target.all;
+  q('.manage').addEventListener('click', () => openSheet('light', target.ids[0]));
 
   const presets = q('.presets');
   for (const p of PRESETS) {
@@ -790,13 +795,43 @@ function leaveSetup() {
   showView('lights');
 }
 
-async function openSheet() {
+const PANELS = { bridge: 'Bridge', light: 'Light', add: 'Add lights' };
+
+function showPanel(name) {
+  S.panel = name;
+  for (const p of Object.keys(PANELS)) $(`${p}Panel`).hidden = p !== name;
+  $('sheetTitle').textContent = PANELS[name];
   $('sheet').hidden = false;
-  fillInfo([['IP address', S.ip]]);
+}
+
+async function openSheet(panel = 'bridge', lightId = '') {
+  if (panel === 'light') {
+    const light = S.lights[lightId];
+    if (!light) return;
+    S.sheetLight = lightId;
+    showPanel('light');
+    $('lightName').value = light.name;
+    fillInfo('lightInfo', [
+      ['Type', light.type],
+      ['Model', light.modelid],
+      ['Maker', light.manufacturername],
+      ['Software', light.swversion],
+      ['Serial / ID', light.uniqueid],
+      ['Bridge light number', lightId],
+    ]);
+    return;
+  }
+  if (panel === 'add') {
+    showPanel('add');
+    return;
+  }
+  showPanel('bridge');
+  fillInfo('bridgeInfo', [['IP address', S.ip]]);
   try {
     const c = await hue('GET', `/api/${S.user}/config`);
     if (firstError(c)) return;
-    fillInfo([
+    if (!$('bridgeName').value) $('bridgeName').value = c.name || '';
+    fillInfo('bridgeInfo', [
       ['Name', c.name],
       ['IP address', S.ip],
       ['Model', c.modelid],
@@ -809,8 +844,8 @@ async function openSheet() {
   }
 }
 
-function fillInfo(rows) {
-  const dl = $('bridgeInfo');
+function fillInfo(id, rows) {
+  const dl = $(id);
   dl.textContent = '';
   for (const [label, value] of rows) {
     if (value === undefined || value === null || value === '') continue;
@@ -824,6 +859,162 @@ function fillInfo(rows) {
 
 function closeSheet() {
   $('sheet').hidden = true;
+  $('bridgeName').value = '';
+}
+
+// ---------- managing lights (what the old official app's settings did) ----------
+
+/** Send a management request; returns true on success, shows the bridge's error otherwise. */
+async function manage(method, path, body) {
+  try {
+    const reply = await hue(method, path, body);
+    const err = firstError(reply);
+    if (err) {
+      handleApiError(err);
+      return false;
+    }
+    return true;
+  } catch {
+    toast("Couldn't reach the bridge.");
+    return false;
+  }
+}
+
+async function renameLight() {
+  const id = S.sheetLight;
+  const name = $('lightName').value.trim().slice(0, 32);
+  if (!S.lights[id] || !name) return;
+  if (await manage('PUT', `/api/${S.user}/lights/${id}`, { name })) {
+    S.lights[id].name = name;
+    syncCards();
+    toast('Renamed.');
+    refresh();
+  }
+}
+
+function blinkLight() {
+  const id = S.sheetLight;
+  if (S.lights[id]) manage('PUT', `/api/${S.user}/lights/${id}/state`, { alert: 'select' });
+}
+
+async function removeLight() {
+  const id = S.sheetLight;
+  const light = S.lights[id];
+  if (!light) return;
+  if (!confirm(`Remove "${light.name}" from the bridge? To use it again you'll have to add it back, which may need its serial number or Touchlink.`)) return;
+  if (await manage('DELETE', `/api/${S.user}/lights/${id}`)) {
+    closeSheet();
+    delete S.lights[id];
+    S.expanded.delete(id);
+    renderLights();
+    toast(`Removed ${light.name}.`);
+    refresh();
+  }
+}
+
+async function renameBridge() {
+  const name = $('bridgeName').value.trim().slice(0, 16);
+  if (name.length < 4) {
+    toast('The bridge name needs 4 to 16 characters.');
+    return;
+  }
+  if (await manage('PUT', `/api/${S.user}/config`, { name })) {
+    toast('Bridge renamed.');
+    openSheet('bridge');
+  }
+}
+
+/** "3A7F2C, 1b9e04" -> ['3A7F2C', '1B9E04'], or null if something isn't a 6-character serial. */
+function parseSerials(text) {
+  const parts = text.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+  if (!parts.every((p) => /^[0-9A-F]{6}$/.test(p))) return null;
+  return parts.slice(0, 10);
+}
+
+let addJob = null;
+
+function setAddStatus(msg, kind) {
+  const el = $('addStatus');
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.className = `notice ${kind || ''}`;
+}
+
+/** Ask the bridge to search for new lights, then watch /lights/new until it stops. */
+async function searchLights() {
+  if (addJob) return;
+  const serials = parseSerials($('serials').value);
+  if (!serials) {
+    setAddStatus('Serial numbers are 6 letters or digits each, like 3A7F2C.', 'error');
+    return;
+  }
+  const job = { cancelled: false };
+  addJob = job;
+  $('searchLightsBtn').disabled = true;
+  $('touchlinkBtn').disabled = true;
+  $('addFound').textContent = '';
+  setAddStatus('Asking the bridge to search…', 'waiting');
+  try {
+    if (!await manage('POST', `/api/${S.user}/lights`, serials.length ? { deviceid: serials } : undefined)) {
+      setAddStatus('', '');
+      return;
+    }
+    const found = {};
+    const deadline = Date.now() + 90000;
+    let scanning = true;
+    while (scanning && !job.cancelled && Date.now() < deadline) {
+      await sleep(3000);
+      let reply;
+      try {
+        reply = await hue('GET', `/api/${S.user}/lights/new`);
+      } catch {
+        continue; // the bridge is slow to answer while it scans; try again
+      }
+      if (firstError(reply)) continue;
+      for (const [id, v] of Object.entries(reply)) {
+        if (id !== 'lastscan' && v && v.name && !found[id]) {
+          found[id] = v.name;
+          const chip = document.createElement('span');
+          chip.className = 'chip';
+          chip.textContent = v.name;
+          $('addFound').appendChild(chip);
+        }
+      }
+      scanning = reply.lastscan === 'active';
+      const n = Object.keys(found).length;
+      setAddStatus(scanning
+        ? `Searching… ${n ? `found ${n} so far.` : 'this takes about a minute.'}`
+        : n ? `Done. Added ${n} light${n === 1 ? '' : 's'}.` : 'Done. No new lights found. Check they have power, or try their serial numbers or Touchlink.',
+      scanning ? 'waiting' : n ? '' : 'error');
+    }
+    await refresh();
+  } finally {
+    addJob = null;
+    $('searchLightsBtn').disabled = false;
+    $('touchlinkBtn').disabled = false;
+  }
+}
+
+/** Touchlink: the bridge takes over the nearest light, even one owned by another bridge. */
+async function touchlink() {
+  if (addJob) return;
+  setAddStatus('Hold the light within a few feet of the bridge…', 'waiting');
+  try {
+    const reply = await hue('PUT', `/api/${S.user}/config`, { touchlink: true });
+    const err = firstError(reply);
+    if (err) {
+      setAddStatus(err.type === 6 || err.type === 7
+        ? "This bridge's firmware doesn't support Touchlink. Try the light's serial number instead."
+        : `The bridge said: ${err.description}`, 'error');
+      if (err.type === 1) unpaired();
+      return;
+    }
+    setAddStatus('Touchlink started. The light blinks when it joins; it shows up in the list within a minute.', '');
+    setTimeout(refresh, 10000);
+    setTimeout(refresh, 30000);
+  } catch {
+    setAddStatus("Couldn't reach the bridge.", 'error');
+  }
 }
 
 function forget() {
@@ -868,7 +1059,8 @@ function toast(msg) {
 /** Called by MainActivity on the Android back button; true = handled here. */
 window.handleBack = () => {
   if (!$('sheet').hidden) {
-    closeSheet();
+    if (S.panel === 'add') openSheet('bridge');
+    else closeSheet();
     return true;
   }
   if (S.view === 'setup' && S.returnToLights && S.user) {
@@ -892,8 +1084,22 @@ function boot() {
   $('cancelSetupBtn').addEventListener('click', leaveSetup);
   $('refreshBtn').addEventListener('click', refresh);
   $('retryBtn').addEventListener('click', refresh);
-  $('settingsBtn').addEventListener('click', openSheet);
+  $('settingsBtn').addEventListener('click', () => openSheet('bridge'));
   $('closeSheetBtn').addEventListener('click', closeSheet);
+  $('renameBridgeBtn').addEventListener('click', renameBridge);
+  $('bridgeName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') renameBridge();
+  });
+  $('addLightsBtn').addEventListener('click', () => openSheet('add'));
+  $('addBackBtn').addEventListener('click', () => openSheet('bridge'));
+  $('searchLightsBtn').addEventListener('click', searchLights);
+  $('touchlinkBtn').addEventListener('click', touchlink);
+  $('renameLightBtn').addEventListener('click', renameLight);
+  $('lightName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') renameLight();
+  });
+  $('blinkBtn').addEventListener('click', blinkLight);
+  $('removeLightBtn').addEventListener('click', removeLight);
   $('sheet').addEventListener('click', (e) => {
     if (e.target === $('sheet')) closeSheet();
   });
