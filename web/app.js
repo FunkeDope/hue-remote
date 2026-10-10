@@ -1,8 +1,8 @@
 'use strict';
 
 /*
- * Hue Remote: pairs with a Hue bridge and controls its lights over the v1 REST API,
- * which is all the original round bridge (BSB001) speaks.
+ * Hue Remote: pairs with a Hue bridge and controls its lights over the local v1 REST API.
+ * Built and tested on the original round bridge (BSB001); nothing here is model-specific.
  *
  * HTTP to the bridge, discovery and settings go through window.Native when there is
  * one: the Android app provides it (MainActivity.java), and the Node web version
