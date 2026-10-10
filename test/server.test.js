@@ -75,6 +75,37 @@ test('web server', async (t) => {
     assert.equal(down.ok, false);
   });
 
+  await t.test('manages lights: rename, blink, remove, add, bridge name', async () => {
+    const api = `${bridge}/api/${mock.USER}`;
+    const call = async (method, url, body) => JSON.parse((await proxy({ method, url, body: body ? JSON.stringify(body) : '' })).body);
+
+    assert.ok((await call('PUT', `${api}/lights/1`, { name: 'Bedroom' }))[0].success);
+    assert.equal(mock.lights[1].name, 'Bedroom');
+    assert.equal((await call('PUT', `${api}/lights/1`, { name: '' }))[0].error.type, 7);
+
+    const blink = await call('PUT', `${api}/lights/1/state`, { alert: 'select' });
+    assert.ok(blink[0].success, 'alert works on a light that is off');
+
+    assert.ok((await call('DELETE', `${api}/lights/1`))[0].success);
+    assert.equal(mock.lights[1], undefined);
+
+    assert.ok((await call('PUT', `${api}/config`, { name: 'Hallway hub' }))[0].success);
+    assert.equal(mock.config.name, 'Hallway hub');
+    assert.equal((await call('PUT', `${api}/config`, { name: 'ab' }))[0].error.type, 7);
+    assert.ok((await call('PUT', `${api}/config`, { touchlink: true }))[0].success);
+
+    mock.scan.durationMs = 300;
+    assert.ok((await call('POST', `${api}/lights`, { deviceid: ['3A7F2C'] }))[0].success);
+    assert.equal((await call('GET', `${api}/lights/new`)).lastscan, 'active');
+    await new Promise((r) => setTimeout(r, 350));
+    const after = await call('GET', `${api}/lights/new`);
+    assert.notEqual(after.lastscan, 'active');
+    const added = Object.keys(after).filter((k) => k !== 'lastscan');
+    assert.equal(added.length, 1);
+    assert.equal(after[added[0]].name, 'Hue lamp 3A7F2C');
+    assert.equal(mock.lights[added[0]].name, 'Hue lamp 3A7F2C');
+  });
+
   await t.test('only proxies to a bridge API on the local network', async () => {
     const urls = [
       'http://8.8.8.8/api',

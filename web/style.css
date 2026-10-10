@@ -40,6 +40,8 @@ button, .switch, .slider { cursor: pointer; }
 .icon-btn:active { background: var(--card-2); }
 .icon-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
+.icon-btn.small { width: 36px; height: 36px; color: var(--muted); }
+.icon-btn.small svg { width: 20px; height: 20px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 main { padding: 0 16px 32px; max-width: 640px; margin: 0 auto; }
@@ -70,6 +72,9 @@ h2 { font-size: 20px; margin: 8px 0 4px; font-weight: 600; }
   border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; font-size: 18px;
 }
 .field input:focus { outline: none; border-color: var(--accent); }
+.inline { display: flex; gap: 8px; }
+.inline input { flex: 1; min-width: 0; height: 48px; font-size: 16px; }
+.inline .btn { flex: none; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
@@ -145,6 +150,8 @@ h2 { font-size: 20px; margin: 8px 0 4px; font-weight: 600; }
 .info { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 14px 0 18px; font-size: 15px; }
 .info dt { color: var(--muted); }
 .info dd { margin: 0; overflow-wrap: anywhere; }
+.sheet-card { max-height: 90vh; overflow-y: auto; }
+.sheet-card .notice { margin: 14px 0 8px; }
 
 .toast {
   position: fixed; left: 16px; right: 16px; bottom: 24px; z-index: 20; margin: 0 auto; max-width: 480px;

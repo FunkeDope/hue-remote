@@ -6,6 +6,10 @@
 // Run `npm start` alongside it and pair with "localhost:8123". (It also serves the
 // UI itself at http://localhost:8123/ for quick CSS tweaks.) The fake link button
 // counts as pressed on the third pairing attempt. Commands are logged.
+//
+// Light management is faked too: a search for new lights (POST /lights) runs for
+// scan.durationMs and turns up one new light, lights can be renamed and deleted, and
+// the bridge can be renamed or asked to touchlink.
 'use strict';
 
 const http = require('http');
@@ -33,6 +37,33 @@ const config = {
   mac: '00:17:88:00:00:00', zigbeechannel: 15, ipaddress: '127.0.0.1',
 };
 
+// A search for new lights: active for durationMs, adds one light part-way through.
+const scan = { durationMs: 4000, startedAt: 0, lastscan: 'none', found: {}, serials: [], added: false };
+
+function nextLightId() {
+  return String(Math.max(0, ...Object.keys(lights).map(Number)) + 1);
+}
+
+function tickScan() {
+  if (!scan.startedAt) return;
+  const elapsed = Date.now() - scan.startedAt;
+  if (!scan.added && elapsed > scan.durationMs / 3) {
+    scan.added = true;
+    const id = nextLightId();
+    const serial = scan.serials[0];
+    lights[id] = {
+      name: serial ? `Hue lamp ${serial}` : `Hue color lamp ${id}`, type: 'Extended color light', modelid: 'LCT007',
+      manufacturername: 'Philips', uniqueid: `00:17:88:01:00:${id.padStart(2, '0')}:00:00-0b`,
+      state: { on: true, bri: 254, hue: 8418, sat: 140, ct: 366, effect: 'none', alert: 'none', colormode: 'ct', reachable: true },
+    };
+    scan.found[id] = { name: lights[id].name };
+  }
+  if (elapsed >= scan.durationMs) {
+    scan.startedAt = 0;
+    scan.lastscan = new Date().toISOString().slice(0, 19);
+  }
+}
+
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 
 function setState(id, body, address) {
@@ -40,7 +71,7 @@ function setState(id, body, address) {
   const out = [];
   for (const [k, v] of Object.entries(body)) {
     if (k === 'transitiontime') continue;
-    if (k !== 'on' && !st.on && !body.on) {
+    if (k !== 'on' && k !== 'alert' && !st.on && !body.on) {
       out.push({ error: { type: 201, address: `${address}/${k}`, description: `parameter, ${k}, is not modifiable. Device is set to off.` } });
       continue;
     }
@@ -98,7 +129,46 @@ const server = http.createServer((req, res) => {
 
     if (req.method === 'GET' && rest === '/lights') return send(200, lights);
     if (req.method === 'GET' && rest === '/config') return send(200, config);
-    let lm = rest.match(/^\/lights\/(\d+)\/state$/);
+    if (req.method === 'PUT' && rest === '/config') {
+      const out = [];
+      if ('name' in body) {
+        if (typeof body.name !== 'string' || body.name.length < 4 || body.name.length > 16) {
+          out.push({ error: { type: 7, address: '/config/name', description: `invalid value, ${body.name}, for parameter, name` } });
+        } else {
+          config.name = body.name;
+          out.push({ success: { '/config/name': body.name } });
+        }
+      }
+      if (body.touchlink === true) out.push({ success: { '/config/touchlink': true } });
+      return send(200, out);
+    }
+    if (req.method === 'POST' && rest === '/lights') {
+      tickScan();
+      if (scan.startedAt) return send(200, [{ error: { type: 901, address: '/lights', description: 'Internal error, 501' } }]);
+      scan.startedAt = Date.now();
+      scan.lastscan = 'active';
+      scan.found = {};
+      scan.added = false;
+      scan.serials = Array.isArray(body.deviceid) ? body.deviceid : [];
+      return send(200, [{ success: { '/lights': 'Searching for new devices' } }]);
+    }
+    if (req.method === 'GET' && rest === '/lights/new') {
+      tickScan();
+      return send(200, Object.assign({ lastscan: scan.startedAt ? 'active' : scan.lastscan }, scan.found));
+    }
+    let lm = rest.match(/^\/lights\/(\d+)$/);
+    if (req.method === 'PUT' && lm && lights[lm[1]]) {
+      if (typeof body.name !== 'string' || !body.name.length || body.name.length > 32) {
+        return send(200, [{ error: { type: 7, address: `/lights/${lm[1]}/name`, description: `invalid value, ${body.name}, for parameter, name` } }]);
+      }
+      lights[lm[1]].name = body.name;
+      return send(200, [{ success: { [`/lights/${lm[1]}/name`]: body.name } }]);
+    }
+    if (req.method === 'DELETE' && lm && lights[lm[1]]) {
+      delete lights[lm[1]];
+      return send(200, [{ success: `/lights/${lm[1]} deleted` }]);
+    }
+    lm = rest.match(/^\/lights\/(\d+)\/state$/);
     if (req.method === 'PUT' && lm && lights[lm[1]]) return send(200, setState(lm[1], body, `/lights/${lm[1]}/state`));
     lm = rest.match(/^\/groups\/0\/action$/);
     if (req.method === 'PUT' && lm) {
@@ -112,4 +182,4 @@ const server = http.createServer((req, res) => {
 if (require.main === module) {
   server.listen(port, () => console.log(`mock bridge on http://localhost:${port}/ (pair with "localhost:${port}")`));
 }
-module.exports = { server, lights, USER };
+module.exports = { server, lights, config, scan, USER };
