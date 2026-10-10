@@ -17,7 +17,7 @@ your own network, using the bridge's local v1 API (the only API the v1 bridge ha
 </p>
 
 **Download:** the APK and the web version are attached to each
-[release](https://github.com/FunkeDope/skiddie.life/releases). What changed in each
+[release](https://github.com/FunkeDope/hue-remote/releases). What changed in each
 version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Contents
@@ -63,7 +63,7 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ### Install
 
-1. On the phone, open the [latest release](https://github.com/FunkeDope/skiddie.life/releases/latest)
+1. On the phone, open the [latest release](https://github.com/FunkeDope/hue-remote/releases/latest)
    and download `hue-remote-<version>.apk`.
 2. Open the downloaded file. Android will ask you to allow installs from your browser
    or Files app. Allow it.
@@ -98,8 +98,8 @@ mixed-content problems.
 
 1. Install [Node.js](https://nodejs.org/) 18 or newer.
 2. Download `hue-remote-web-<version>.zip` from the
-   [latest release](https://github.com/FunkeDope/skiddie.life/releases/latest) and
-   unzip it (or clone the `hue-control` branch).
+   [latest release](https://github.com/FunkeDope/hue-remote/releases/latest) and
+   unzip it (or clone this repo).
 3. In a terminal in that folder, run:
 
    ```sh
@@ -240,9 +240,9 @@ link button counts as pressed on the third try.
 1. Bump the version in `package.json` and in `android/AndroidManifest.xml`
    (`versionName`, and `versionCode` +1). The two have to match.
 2. Add a `## <version> (<date>)` section at the top of `RELEASE_NOTES.md`.
-3. Commit and push to `hue-control`.
+3. Commit and push to `main`.
 
-On every push to `hue-control`,
+On every push to `main`,
 [`.github/workflows/release.yml`](.github/workflows/release.yml) checks whether that
 version has a release yet. If not, it runs the tests, builds the APK and the web zip,
 creates the `hue-remote-v<version>` tag, and publishes a GitHub release with that

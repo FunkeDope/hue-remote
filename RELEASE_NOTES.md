@@ -72,6 +72,6 @@ It comes in two flavors that share the same interface:
 
 ### Installing over an earlier build
 
-This release's APK is signed with a different key than the test build shared before
-it (from the `ccr-967645b9-6z0l1r` branch). Android won't install one over the
-other, so uninstall the old one first. You'll just need to pair again.
+This APK is signed with a different key than the test builds shared before it.
+Android won't install one over the other, so if you have one of those installed,
+uninstall it first. You'll just need to pair again.

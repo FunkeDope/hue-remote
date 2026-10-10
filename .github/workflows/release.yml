@@ -2,11 +2,11 @@ name: Release
 
 # Publishes a GitHub release with the APK and the web version whenever the version in
 # package.json hasn't been released yet: bump the version, add its section to
-# RELEASE_NOTES.md, and push to hue-control. This creates the hue-remote-v<version>
+# RELEASE_NOTES.md, and push to main. This creates the hue-remote-v<version>
 # tag. Pushing a hue-remote-v* tag yourself works too.
 on:
   push:
-    branches: [hue-control]
+    branches: [main]
     tags: ["hue-remote-v*"]
 
 permissions:
