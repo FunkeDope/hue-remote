@@ -8,7 +8,7 @@ There's no account, no cloud, no ads and no tracking. It only talks to the bridg
 your own network, using the bridge's local v1 API (the only API the v1 bridge has).
 
 **Use it in your browser, nothing to install:** <https://funkedope.github.io/hue-remote/>
-(Chrome or Edge on a computer; see [Browser version](#browser-version-no-install)).
+(Chrome or Edge, on a computer or an Android phone; see [Browser version](#browser-version-no-install)).
 
 <p>
   <img src="docs/screenshots/lights.png" width="220" alt="Lights screen with All lights, Left and Right cards">
@@ -31,6 +31,7 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 - [Android app](#android-app)
 - [Web version (Node.js)](#web-version-nodejs)
 - [Using it](#using-it)
+- [Finding your bridge's IP](#finding-your-bridges-ip)
 - [How it works](#how-it-works)
 - [Privacy and security](#privacy-and-security)
 - [Building from source](#building-from-source)
@@ -40,8 +41,8 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Features
 
-- **Pairing:** type the bridge's IP (or, in the app and the Node version, let it search
-  the network), then press the bridge's link button.
+- **Pairing:** let it search the network or type the bridge's IP, then press the
+  bridge's link button.
 - **Per light:** a power switch, brightness, 10 color presets, and hue and saturation
   sliders for any other color.
 - **All lights at once:** an "All lights" card, plus All on and All off buttons.
@@ -62,19 +63,20 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 | **Bridge** | Hue bridge v1 (round, `BSB001`) on its final firmware, `01043155` / API `1.16.0`. The v2 (square) bridge still serves the same local v1 API, so it should work too, but that hasn't been tested. |
 | **Lights** | Color lights (Bloom, Iris, LivingColors, color bulbs), white-ambiance bulbs, dimmable white bulbs and smart plugs. Tested with Hue Living Colors Bloom (`LLC011`). |
 | **Android** | 5.0 (Lollipop) or newer. |
-| **Browser version** | Chrome or Edge 142 or newer on a computer. Firefox may work but hasn't been confirmed, and Chrome on Android hasn't been tested. Safari (Mac, iPhone, iPad) can't reach devices on your network from a website. |
+| **Browser version** | Chrome or Edge 142 or newer, on a computer or Android (confirmed working in Chrome on Android). Firefox may work but hasn't been confirmed. Safari (Mac, iPhone, iPad) can't reach devices on your network from a website. |
 | **Web version** | Node.js 18 or newer on Windows, macOS or Linux, and any current browser (built and tested with Chrome). |
 
 ## Browser version (no install)
 
-Open **<https://funkedope.github.io/hue-remote/>** in Chrome or Edge on a computer
-that's on the same network as the bridge. Anyone can use the same link; each person
-pairs with their own bridge.
+Open **<https://funkedope.github.io/hue-remote/>** in Chrome or Edge, on a computer or
+an Android phone that's on the same network as the bridge. Anyone can use the same link;
+each person pairs with their own bridge.
 
-1. Type the bridge's IP address. A web page can't search the network, but your
-   router's list of connected devices shows it.
-2. Click **Pair**. When the browser asks to let the site access devices on your local
-   network, choose **Allow**.
+1. Click **Search network**. When the browser asks to let the site access devices on
+   your local network, choose **Allow**. It usually finds the bridge in a few seconds
+   and fills in its IP. If it doesn't, type the IP yourself (see
+   [Finding your bridge's IP](#finding-your-bridges-ip)).
+2. Click **Pair**.
 3. Press the round button on top of the bridge within 30 seconds.
 
 The pairing is saved in that browser's localStorage, so next time the page opens
@@ -183,6 +185,21 @@ lights.
 - **Gear button:** shows bridge details and lets you pair a different bridge or forget
   this one.
 
+## Finding your bridge's IP
+
+- **Search network** finds it in the Android app, the Node version and the website.
+- **On the website, type the first three parts of your network's addresses** (like
+  `192.168.1` or `10.1.10`), then Search, if the automatic search comes up empty. Your
+  phone's or computer's own IP shows them. On Android it's in the Wi-Fi network's
+  details (tap the network, or its gear icon). On Windows, run `ipconfig` and look at
+  **IPv4 Address**.
+- **Your router's list of connected devices.** The bridge usually shows up as
+  `Philips-hue`. Every Hue bridge's MAC address starts with `00:17:88`, which helps
+  pick it out.
+- **Another Hue app.** Apps like Hue Essentials show the IP in the bridge's details.
+- **On Windows,** `arp -a | findstr 00-17-88` shows it if your PC has talked to the
+  bridge recently.
+
 ## How it works
 
 The UI in [`web/`](web) is plain HTML, CSS and JavaScript. In the Android app and the
@@ -199,7 +216,14 @@ Website:  web/ on GitHub Pages ──fetch()────────────
 (find bridges), `getPref` and `setPref` (saved settings), and `deviceName`. Going
 through it sidesteps CORS and Android's cleartext rules, and lets discovery use UDP,
 which a web page can't. Without it, the page uses `fetch()` (marked as a local network
-request for Chrome) and `localStorage`, and hides **Search network**.
+request for Chrome) and `localStorage`, and searches the network itself.
+
+**How the website searches:** a web page can't send SSDP and can't see its own IP
+address, so it guesses. It checks which of about 25 common home ranges (`192.168.1.x`,
+`192.168.0.x`, `10.0.0.x`, `10.1.10.x` and so on) has a router answering at `.1` or
+`.254`. Then it asks every address in those ranges for `/api/config`, 64 at a time. Only
+a Hue bridge answers that with Hue-style JSON the page is allowed to read. If you type
+part of an address first, like `192.168.1`, it searches that range straight away.
 
 The Hue v1 API calls it makes:
 
@@ -210,7 +234,8 @@ The Hue v1 API calls it makes:
 | Change a light | `PUT /api/<username>/lights/<id>/state` with `on`, `bri`, `hue`, `sat`, `ct`, `transitiontime` |
 | All on / off | `PUT /api/<username>/groups/0/action` (group 0 is every light) |
 | Bridge details | `GET /api/<username>/config` |
-| Find bridges | SSDP `M-SEARCH` to `239.255.255.250:1900`, then `GET /description.xml` on each address in the local /24 |
+| Find bridges (app, Node) | SSDP `M-SEARCH` to `239.255.255.250:1900`, then `GET /description.xml` on each address in the local /24 |
+| Find bridges (website) | `GET /` on `.1` and `.254` of common home ranges, then `GET /api/config` on each address in the ranges that answer |
 
 Slider drags fire far faster than the bridge can keep up with (about 10 commands a
 second). So changes are merged per light, sent round-robin at most every 100 ms, and
@@ -356,8 +381,12 @@ bridge (not a guest network). If the bridge's IP keeps changing, give it a fixed
 address (a DHCP reservation) in your router.
 
 ### Search network finds nothing
-Some routers block device discovery between Wi-Fi clients, and on Windows the
-firewall can block the replies. Type the IP address instead.
+- **In the app or the Node version:** some routers block device discovery between
+  Wi-Fi clients, and on Windows the firewall can block the replies.
+- **On the website:** your network may use a range it doesn't guess. Type the first
+  three parts of your IP address (like `192.168.1`) and search again.
+- Either way, you can type the bridge's IP; see
+  [Finding your bridge's IP](#finding-your-bridges-ip).
 
 ### Pairing times out
 Press the round button on the bridge after tapping **Pair**. It has to happen within

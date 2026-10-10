@@ -12,7 +12,7 @@
 
 const $ = (id) => document.getElementById(id);
 const Native = window.Native || null;
-const BROWSER = !Native; // plain web page: no discovery, needs the browser's local network permission
+const BROWSER = !Native; // plain web page: needs the browser's local network permission
 
 const S = {
   ip: '',
@@ -57,13 +57,18 @@ async function http(method, url, body) {
   // allow local network access; once allowed, a bridge at a private IP may be called
   // over plain http. The bridge's CORS headers (Access-Control-Allow-Origin: *) let the
   // page read the replies.
-  const opts = { method, body: text || undefined, credentials: 'omit', cache: 'no-store' };
-  if (isPrivateIPv4(new URL(url).hostname)) opts.targetAddressSpace = 'local';
+  const res = await localFetch(url, { method, body: text || undefined }, 8000);
+  return res.text();
+}
+
+/** fetch() from the page itself, with a timeout, marked as local when it's a LAN IP. */
+async function localFetch(url, opts, timeoutMs) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const init = Object.assign({ credentials: 'omit', cache: 'no-store', signal: ctrl.signal }, opts);
+  if (isPrivateIPv4(new URL(url).hostname)) init.targetAddressSpace = 'local';
   try {
-    const res = await fetch(url, Object.assign(opts, { signal: ctrl.signal }));
-    return await res.text();
+    return await fetch(url, init);
   } finally {
     clearTimeout(timer);
   }
@@ -77,17 +82,23 @@ function isPrivateIPv4(host) {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
 }
 
-/** True when the user has blocked this site's local network access (Chrome/Edge). */
-async function localNetworkBlocked() {
-  if (!navigator.permissions) return false;
+/** The browser's local network permission (Chrome/Edge), or null if it has none to ask. */
+async function localNetworkPermission() {
+  if (!navigator.permissions) return null;
   for (const name of ['local-network-access', 'local-network']) {
     try {
-      if ((await navigator.permissions.query({ name })).state === 'denied') return true;
+      return await navigator.permissions.query({ name });
     } catch {
       // this browser doesn't know that permission name
     }
   }
-  return false;
+  return null;
+}
+
+/** True when the user has blocked this site's local network access. */
+async function localNetworkBlocked() {
+  const status = await localNetworkPermission();
+  return Boolean(status && status.state === 'denied');
 }
 
 /** A "can't reach the bridge" message, with what to do about the browser's permission. */
@@ -500,6 +511,7 @@ async function pair() {
     setPairStatus('Enter the bridge IP address first.', 'error');
     return;
   }
+  if (searchJob) searchJob.cancelled = true;
   const job = { cancelled: false };
   S.pairing = job;
   $('pairBtn').textContent = 'Cancel';
@@ -569,35 +581,186 @@ function unpaired() {
   showSetup("The bridge doesn't recognize this app anymore. Pair it again.");
 }
 
+// ---------- searching from a plain web page ----------
+// A web page can't send SSDP, and browsers hide the device's own IP address. So the
+// website searches the range you typed (e.g. "192.168.1"), or else finds your home
+// network by checking which common home ranges have a router answering at .1 or .254,
+// then asks every address in that range for /api/config. Only a Hue bridge answers
+// that with Hue-shaped JSON (and the CORS header that lets the page read it).
+
+const COMMON_SUBNETS = [
+  '192.168.1', '192.168.0', '10.0.0', '192.168.2', '10.0.1', '192.168.4', '192.168.86',
+  '192.168.50', '192.168.10', '192.168.100', '192.168.178', '192.168.68', '192.168.8',
+  '192.168.3', '192.168.5', '192.168.11', '192.168.15', '192.168.31', '192.168.88',
+  '192.168.20', '192.168.123', '10.1.10', '10.0.2', '10.10.10', '172.16.0',
+];
+
+/** "a.b.c" from something like "192.168.1", "192.168.1.x" or a full IP, if it's a LAN range. */
+function subnetOf(text) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\.(?:\d{1,3}|x|\*))?$/i.exec(cleanIp(text));
+  if (!m) return null;
+  const prefix = `${m[1]}.${m[2]}.${m[3]}`;
+  return isPrivateIPv4(`${prefix}.1`) ? prefix : null;
+}
+
+/** Run fn over items, `limit` at a time, until done or the job is cancelled. */
+async function eachLimit(items, limit, job, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length && !job.cancelled) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/** 'answered' (something served HTTP), 'refused' (failed right away) or 'silent'. */
+async function probe(ip) {
+  const started = Date.now();
+  try {
+    await localFetch(`http://${ip}/`, { mode: 'no-cors' }, 1500);
+    return 'answered';
+  } catch {
+    return Date.now() - started < 700 ? 'refused' : 'silent';
+  }
+}
+
+/** Which of these ranges look like the network we're on, most likely first. */
+async function liveSubnets(subnets, job) {
+  const seen = {};
+  const ips = subnets.flatMap((s) => [`${s}.1`, `${s}.254`]);
+  await eachLimit(ips, 32, job, async (ip) => {
+    seen[ip] = await probe(ip);
+  });
+  const has = (s, result) => seen[`${s}.1`] === result || seen[`${s}.254`] === result;
+  // A home usually has one network, two with an ISP router in front of your own.
+  const answered = subnets.filter((s) => has(s, 'answered')).slice(0, 4);
+  if (answered.length) return answered;
+  // Some routers have no web page and just refuse the connection. If only a few ranges
+  // refused, that's probably it; if most did, something is rejecting everything, and
+  // sweeping them all would take minutes, so leave it to a typed range.
+  const refused = subnets.filter((s) => has(s, 'refused'));
+  return refused.length <= 3 ? refused : [];
+}
+
+/** { ip, name } if a Hue bridge answers at this address. */
+async function identifyBridge(ip) {
+  try {
+    const res = await localFetch(`http://${ip}/api/config`, {}, 1500);
+    const data = await res.json();
+    const hueShaped = Array.isArray(data)
+      ? data.some((r) => r && r.error && r.error.type === 1) // "unauthorized user": older firmware
+      : Boolean(data && (data.bridgeid || data.swversion || data.apiversion));
+    if (hueShaped) return { ip, name: (!Array.isArray(data) && data.name) || '' };
+  } catch {
+    // nothing there, not HTTP, or not something the page may read
+  }
+  return null;
+}
+
+async function scanSubnet(subnet, job, progress) {
+  const found = [];
+  let done = 0;
+  const ips = Array.from({ length: 254 }, (_, i) => `${subnet}.${i + 1}`);
+  // Stop handing out addresses once a bridge turns up; the ones in flight still finish.
+  const until = { get cancelled() { return job.cancelled || found.length > 0; } };
+  await eachLimit(ips, 64, until, async (ip) => {
+    const bridge = await identifyBridge(ip);
+    if (bridge) found.push(bridge);
+    if (++done % 8 === 0) progress(`Checking ${subnet}.1 to ${subnet}.254… ${Math.round((done / ips.length) * 100)}%`);
+  });
+  return found.sort((a, b) => Number(a.ip.split('.')[3]) - Number(b.ip.split('.')[3]));
+}
+
+async function scanOnce(job, say) {
+  const typed = subnetOf($('ipInput').value);
+  if (typed) {
+    const found = await scanSubnet(typed, job, say);
+    if (found.length || job.cancelled) return { bridges: found };
+  }
+  say('Looking for your home network…');
+  const live = await liveSubnets(COMMON_SUBNETS.filter((s) => s !== typed), job);
+  for (const subnet of live) {
+    if (job.cancelled) break;
+    const found = await scanSubnet(subnet, job, say);
+    if (found.length) return { bridges: found };
+  }
+  return { bridges: [] };
+}
+
+async function scanFromBrowser(job, progress) {
+  const permission = await localNetworkPermission();
+  if (permission && permission.state === 'denied') return { bridges: [], blocked: true };
+  const asking = Boolean(permission && permission.state === 'prompt');
+  const say = (msg) => progress(permission && permission.state === 'prompt'
+    ? `${msg} If your browser asks to let this site access devices on your local network, choose Allow.`
+    : msg);
+  let result = await scanOnce(job, say);
+  // The first pass may have run while the browser was still asking. Once allowed, go again.
+  if (asking && !result.bridges.length && !job.cancelled && permission.state === 'granted') {
+    result = await scanOnce(job, say);
+  }
+  if (permission && permission.state === 'denied') return { bridges: [], blocked: true };
+  return Object.assign(result, { permission });
+}
+
+let searchJob = null;
+
 async function search() {
+  if (searchJob) {
+    searchJob.cancelled = true; // the website's search can be stopped
+    return;
+  }
+  const job = { cancelled: false };
+  searchJob = job;
   const btn = $('searchBtn');
-  btn.disabled = true;
-  btn.textContent = 'Searching…';
+  btn.textContent = BROWSER ? 'Stop' : 'Searching…';
+  btn.disabled = !BROWSER;
   $('found').textContent = '';
   setPairStatus('Looking for bridges on this network…', 'waiting');
   try {
     let bridges = [];
     if (Native) {
       const r = await callNative('discover');
-      if (r.ok) bridges = r.bridges;
+      if (r.ok) bridges = r.bridges.map((ip) => ({ ip, name: '' }));
+    } else {
+      const result = await scanFromBrowser(job, (msg) => setPairStatus(msg, 'waiting'));
+      if (job.cancelled) {
+        setPairStatus('', '');
+        return;
+      }
+      if (result.blocked) {
+        setPairStatus(await unreachable("The browser didn't let this site search your local network."), 'error');
+        return;
+      }
+      bridges = result.bridges;
+      const permission = result.permission;
+      if (!bridges.length && permission && permission.state === 'prompt') {
+        // Still waiting on the browser's prompt: search again as soon as it's allowed.
+        permission.onchange = () => {
+          permission.onchange = null;
+          if (permission.state === 'granted' && S.view === 'setup' && !searchJob) search();
+        };
+      }
     }
     if (!bridges.length) {
-      setPairStatus("No bridge found automatically. Type its IP address instead (your router's device list shows it).", 'error');
+      setPairStatus(BROWSER
+        ? await unreachable("No bridge found. Type its IP address instead: your router's list of connected devices shows it. Or type the first three parts of this device's own IP address (in its Wi-Fi settings), like 192.168.1, and search again.")
+        : "No bridge found automatically. Type its IP address instead (your router's device list shows it).", 'error');
       return;
     }
     setPairStatus(bridges.length === 1 ? 'Found your bridge. Tap Pair.' : 'Pick your bridge, then tap Pair.', '');
-    if (bridges.length === 1) $('ipInput').value = bridges[0];
-    for (const ip of bridges) {
+    if (bridges.length === 1) $('ipInput').value = bridges[0].ip;
+    for (const bridge of bridges) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'chip';
-      chip.textContent = ip;
+      chip.textContent = bridge.name ? `${bridge.ip} · ${bridge.name}` : bridge.ip;
       chip.addEventListener('click', () => {
-        $('ipInput').value = ip;
+        $('ipInput').value = bridge.ip;
       });
       $('found').appendChild(chip);
     }
   } finally {
+    searchJob = null;
     btn.disabled = Boolean(S.pairing);
     btn.textContent = 'Search network';
   }
@@ -720,10 +883,7 @@ window.handleBack = () => {
 function boot() {
   document.documentElement.style.setProperty('--hue-track', hueTrack());
 
-  if (BROWSER) {
-    $('searchBtn').hidden = true; // a web page can't send SSDP or scan the network
-    $('browserNote').hidden = false;
-  }
+  if (BROWSER) $('browserNote').hidden = false;
   $('pairBtn').addEventListener('click', pair);
   $('searchBtn').addEventListener('click', search);
   $('ipInput').addEventListener('keydown', (e) => {
