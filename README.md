@@ -237,19 +237,17 @@ link button counts as pressed on the third try.
 
 ## Releasing a new version
 
-1. Bump the version in `android/AndroidManifest.xml` (`versionCode` +1 and
-   `versionName`) and in `package.json`.
+1. Bump the version in `package.json` and in `android/AndroidManifest.xml`
+   (`versionName`, and `versionCode` +1). The two have to match.
 2. Add a `## <version> (<date>)` section at the top of `RELEASE_NOTES.md`.
-3. Commit, then tag and push:
+3. Commit and push to `hue-control`.
 
-   ```sh
-   git tag -a hue-remote-v1.1.0 -m "Hue Remote 1.1.0"
-   git push origin hue-control hue-remote-v1.1.0
-   ```
-
-Pushing the tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml).
-It runs the tests, builds the APK and the web zip, and publishes a GitHub release with
-that version's notes and SHA-256 checksums.
+On every push to `hue-control`,
+[`.github/workflows/release.yml`](.github/workflows/release.yml) checks whether that
+version has a release yet. If not, it runs the tests, builds the APK and the web zip,
+creates the `hue-remote-v<version>` tag, and publishes a GitHub release with that
+version's notes and SHA-256 checksums. Pushes that don't change the version do
+nothing. Pushing a `hue-remote-v*` tag yourself also triggers a release.
 
 ### Signing key
 

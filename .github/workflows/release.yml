@@ -1,35 +1,67 @@
 name: Release
 
-# Push a tag like hue-remote-v1.2.3 to build the APK and the web version and
-# publish them as a GitHub release. The notes come from that version's section
-# in RELEASE_NOTES.md.
+# Publishes a GitHub release with the APK and the web version whenever the version in
+# package.json hasn't been released yet: bump the version, add its section to
+# RELEASE_NOTES.md, and push to hue-control. This creates the hue-remote-v<version>
+# tag. Pushing a hue-remote-v* tag yourself works too.
 on:
   push:
+    branches: [hue-control]
     tags: ["hue-remote-v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#hue-remote-v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+          APK_VERSION="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' android/AndroidManifest.xml)"
+          if [ "$APK_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: release $VERSION, but android/AndroidManifest.xml says $APK_VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=hue-remote-v$VERSION" >> "$GITHUB_ENV"
+          if gh release view "hue-remote-v$VERSION" >/dev/null 2>&1; then
+            echo "hue-remote-v$VERSION is already released; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.version.outputs.skip != 'true'
         with:
           node-version: 22
 
       - name: Test the web server
+        if: steps.version.outputs.skip != 'true'
         run: npm test
 
       - name: Install Android build tools
+        if: steps.version.outputs.skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner zip
 
       - name: Build the APK
+        if: steps.version.outputs.skip != 'true'
         env:
           KEYSTORE_B64: ${{ secrets.HUE_REMOTE_KEYSTORE }}
           RELEASE_KEYSTORE_PASS: ${{ secrets.HUE_REMOTE_KEYSTORE_PASSWORD }}
@@ -44,9 +76,8 @@ jobs:
           android/build.sh
 
       - name: Package
+        if: steps.version.outputs.skip != 'true'
         run: |
-          VERSION="${GITHUB_REF_NAME#hue-remote-v}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p dist "stage/hue-remote-web-$VERSION"
           cp android/build/hue-remote.apk "dist/hue-remote-$VERSION.apk"
           cp -r package.json README.md RELEASE_NOTES.md server web dev "stage/hue-remote-web-$VERSION/"
@@ -54,6 +85,7 @@ jobs:
           (cd dist && sha256sum -- * > SHA256SUMS.txt)
 
       - name: Release notes
+        if: steps.version.outputs.skip != 'true'
         run: |
           awk -v v="$VERSION" '/^## /{ p = ($2 == v); next } p' RELEASE_NOTES.md > notes.md
           if [ ! -s notes.md ]; then
@@ -63,6 +95,7 @@ jobs:
           { echo; echo "### SHA-256"; echo; echo '```'; cat dist/SHA256SUMS.txt; echo '```'; } >> notes.md
 
       - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "Hue Remote $VERSION" --notes-file notes.md
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" \
+            --title "Hue Remote $VERSION" --notes-file notes.md
