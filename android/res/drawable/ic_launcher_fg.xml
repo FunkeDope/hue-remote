@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground: 108dp canvas, artwork kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FF5470" android:fillAlpha="0.9"
+        android:pathData="M41,47 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0z" />
+    <path android:fillColor="#FFC94D" android:fillAlpha="0.9"
+        android:pathData="M33,61 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0z" />
+    <path android:fillColor="#4DC3FF" android:fillAlpha="0.9"
+        android:pathData="M49,61 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0z" />
+</vector>

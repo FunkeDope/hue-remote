@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Hue Remote</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Hue Remote</h1>
+    <div class="bar-actions" id="barActions" hidden>
+      <button class="icon-btn" id="refreshBtn" type="button" aria-label="Refresh">
+        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" type="button" aria-label="Bridge settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="setupView" hidden>
+      <h2>Connect your bridge</h2>
+      <p class="muted">Hue Remote has to be on the same network as the bridge.</p>
+
+      <label class="field">
+        <span>Bridge IP address</span>
+        <input id="ipInput" type="text" inputmode="decimal" placeholder="e.g. 192.168.1.20"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <div id="found" class="chips"></div>
+
+      <div class="row">
+        <button id="searchBtn" class="btn secondary" type="button">Search network</button>
+        <button id="pairBtn" class="btn primary" type="button">Pair</button>
+      </div>
+
+      <div id="pairStatus" class="notice" hidden></div>
+      <button id="cancelSetupBtn" class="btn link" type="button" hidden>Back to my lights</button>
+    </section>
+
+    <section id="lightsView" hidden>
+      <div id="banner" class="notice error" hidden>
+        <span id="bannerText"></span>
+        <button id="retryBtn" class="btn small secondary" type="button">Retry</button>
+      </div>
+      <div class="row">
+        <button id="allOnBtn" class="btn primary" type="button">All on</button>
+        <button id="allOffBtn" class="btn secondary" type="button">All off</button>
+      </div>
+      <div id="lights"></div>
+      <p id="emptyMsg" class="muted center" hidden>No lights found on this bridge.</p>
+    </section>
+  </main>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-labelledby="sheetTitle">
+      <h2 id="sheetTitle">Bridge</h2>
+      <dl id="bridgeInfo" class="info"></dl>
+      <button id="repairBtn" class="btn secondary block" type="button">Pair a different bridge</button>
+      <button id="forgetBtn" class="btn danger block" type="button">Forget this bridge</button>
+      <button id="closeSheetBtn" class="btn link block" type="button">Close</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <template id="cardTpl">
+    <article class="card">
+      <div class="card-head">
+        <button class="swatch" type="button" aria-label="Color controls"></button>
+        <button class="title" type="button">
+          <span class="name"></span>
+          <span class="sub"></span>
+        </button>
+        <label class="switch">
+          <input type="checkbox" class="power" aria-label="Power">
+          <span class="knob"></span>
+        </label>
+      </div>
+      <input type="range" class="slider bri" min="1" max="254" aria-label="Brightness">
+      <div class="presets"></div>
+      <div class="fine" hidden>
+        <span class="slider-label hue-label">Color</span>
+        <input type="range" class="slider hue" min="0" max="65535" aria-label="Color">
+        <span class="slider-label sat-label">Saturation</span>
+        <input type="range" class="slider sat" min="0" max="254" aria-label="Saturation">
+        <span class="slider-label ct-label">White temperature</span>
+        <input type="range" class="slider ct" min="153" max="500" aria-label="White temperature">
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

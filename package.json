@@ -1,0 +1,14 @@
+{
+  "name": "hue-remote",
+  "version": "1.0.0",
+  "description": "Pair with an original (v1) Philips Hue bridge and control its lights from Android or a web browser.",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "mock": "node dev/mock-bridge.js",
+    "test": "node --test test/server.test.js"
+  }
+}

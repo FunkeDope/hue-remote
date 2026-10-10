@@ -1,0 +1,68 @@
+name: Release
+
+# Push a tag like hue-remote-v1.2.3 to build the APK and the web version and
+# publish them as a GitHub release. The notes come from that version's section
+# in RELEASE_NOTES.md.
+on:
+  push:
+    tags: ["hue-remote-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test the web server
+        run: npm test
+
+      - name: Install Android build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner zip
+
+      - name: Build the APK
+        env:
+          KEYSTORE_B64: ${{ secrets.HUE_REMOTE_KEYSTORE }}
+          RELEASE_KEYSTORE_PASS: ${{ secrets.HUE_REMOTE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            export KEYSTORE="$RUNNER_TEMP/release.keystore" KEY_ALIAS=hue-remote KEYSTORE_PASS="$RELEASE_KEYSTORE_PASS"
+          else
+            echo "::warning::No HUE_REMOTE_KEYSTORE secret, so this APK is signed with a throwaway key and the next release can't install over it."
+            export KEYSTORE="$RUNNER_TEMP/throwaway.keystore"
+          fi
+          android/build.sh
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#hue-remote-v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p dist "stage/hue-remote-web-$VERSION"
+          cp android/build/hue-remote.apk "dist/hue-remote-$VERSION.apk"
+          cp -r package.json README.md RELEASE_NOTES.md server web dev "stage/hue-remote-web-$VERSION/"
+          (cd stage && zip -qr "../dist/hue-remote-web-$VERSION.zip" "hue-remote-web-$VERSION")
+          (cd dist && sha256sum -- * > SHA256SUMS.txt)
+
+      - name: Release notes
+        run: |
+          awk -v v="$VERSION" '/^## /{ p = ($2 == v); next } p' RELEASE_NOTES.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::RELEASE_NOTES.md has no '## $VERSION' section"
+            exit 1
+          fi
+          { echo; echo "### SHA-256"; echo; echo '```'; cat dist/SHA256SUMS.txt; echo '```'; } >> notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "Hue Remote $VERSION" --notes-file notes.md

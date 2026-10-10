@@ -1,0 +1,8 @@
+# Android build output (android/build.sh)
+android/build/
+
+# Saved bridge settings from the web version
+server/config.json
+server/config.json.tmp
+
+node_modules/
