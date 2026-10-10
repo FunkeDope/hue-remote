@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased
+## 1.1.0 (2026-10-10)
 
 - **Light management**, matching what the old official app's settings could do:
   - **Add lights** from the bridge sheet: search for new lights, add by serial number,
