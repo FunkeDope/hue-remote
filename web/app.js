@@ -4,14 +4,15 @@
  * Hue Remote: pairs with a Hue bridge and controls its lights over the v1 REST API,
  * which is all the original round bridge (BSB001) speaks.
  *
- * HTTP to the bridge, discovery and settings go through window.Native, so CORS and
- * cleartext rules don't apply. The Android app provides it (MainActivity.java); in
- * the web version server/shim.js provides it on top of server/server.js. Without
- * either, it falls back to fetch() and localStorage.
+ * HTTP to the bridge, discovery and settings go through window.Native when there is
+ * one: the Android app provides it (MainActivity.java), and the Node web version
+ * provides it through server/shim.js. Without it, as on the hosted website, the page
+ * talks to the bridge itself with fetch() and saves its settings in localStorage.
  */
 
 const $ = (id) => document.getElementById(id);
 const Native = window.Native || null;
+const BROWSER = !Native; // plain web page: no discovery, needs the browser's local network permission
 
 const S = {
   ip: '',
@@ -52,14 +53,50 @@ async function http(method, url, body) {
     if (!r.ok) throw new Error(r.error || 'Network error');
     return r.body;
   }
+  // Straight from the page. On an https site, Chrome/Edge (142+) first ask the user to
+  // allow local network access; once allowed, a bridge at a private IP may be called
+  // over plain http. The bridge's CORS headers (Access-Control-Allow-Origin: *) let the
+  // page read the replies.
+  const opts = { method, body: text || undefined, credentials: 'omit', cache: 'no-store' };
+  if (isPrivateIPv4(new URL(url).hostname)) opts.targetAddressSpace = 'local';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const res = await fetch(url, { method, body: text || undefined, signal: ctrl.signal });
+    const res = await fetch(url, Object.assign(opts, { signal: ctrl.signal }));
     return await res.text();
   } finally {
     clearTimeout(timer);
   }
+}
+
+function isPrivateIPv4(host) {
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+/** True when the user has blocked this site's local network access (Chrome/Edge). */
+async function localNetworkBlocked() {
+  if (!navigator.permissions) return false;
+  for (const name of ['local-network-access', 'local-network']) {
+    try {
+      if ((await navigator.permissions.query({ name })).state === 'denied') return true;
+    } catch {
+      // this browser doesn't know that permission name
+    }
+  }
+  return false;
+}
+
+/** A "can't reach the bridge" message, with what to do about the browser's permission. */
+async function unreachable(message) {
+  if (!BROWSER) return message;
+  if (await localNetworkBlocked()) {
+    return `${message} Your browser is blocking this site from your local network: click the icon at the left of the address bar, open the site settings, set Local network access to Allow, then reload.`;
+  }
+  return `${message} If your browser asks to let this site access devices on your local network, choose Allow.`;
 }
 
 class NotHueError extends Error {}
@@ -263,7 +300,7 @@ async function refresh() {
   } catch (e) {
     setBanner(e instanceof NotHueError
       ? `${S.ip}: ${e.message}`
-      : `Can't reach the bridge at ${S.ip}. Check that it's powered on and on the same network.`);
+      : await unreachable(`Can't reach the bridge at ${S.ip}. Check that it's powered on and on the same network.`));
   } finally {
     refreshing = false;
     $('refreshBtn').classList.remove('spin');
@@ -477,7 +514,7 @@ async function pair() {
       } catch (e) {
         setPairStatus(e instanceof NotHueError
           ? e.message
-          : `No bridge answered at ${ip}. Check the address and that you're on the same network as the bridge.`, 'error');
+          : await unreachable(`No bridge answered at ${ip}. Check the address and that you're on the same network as the bridge.`), 'error');
         return;
       }
       if (job.cancelled) break;
@@ -683,6 +720,10 @@ window.handleBack = () => {
 function boot() {
   document.documentElement.style.setProperty('--hue-track', hueTrack());
 
+  if (BROWSER) {
+    $('searchBtn').hidden = true; // a web page can't send SSDP or scan the network
+    $('browserNote').hidden = false;
+  }
   $('pairBtn').addEventListener('click', pair);
   $('searchBtn').addEventListener('click', search);
   $('ipInput').addEventListener('keydown', (e) => {

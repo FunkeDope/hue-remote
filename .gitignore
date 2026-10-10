@@ -6,3 +6,6 @@ server/config.json
 server/config.json.tmp
 
 node_modules/
+
+# Built website (npm run site)
+site/

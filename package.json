@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node server/server.js",
+    "site": "node scripts/build-site.js",
     "mock": "node dev/mock-bridge.js",
     "test": "node --test test/server.test.js"
   }

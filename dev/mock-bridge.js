@@ -64,6 +64,18 @@ const server = http.createServer((req, res) => {
     try { body = raw ? JSON.parse(raw) : {}; } catch { return send(200, [{ error: { type: 2, address: '/', description: 'body contains invalid json' } }]); }
     if (raw && require.main === module) console.log(req.method, url, raw);
 
+    // CORS preflight, answered the way the real bridge does, so the hosted website
+    // (a page on another origin) can send PUTs.
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE, HEAD',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '3600',
+      });
+      return res.end();
+    }
+
     if (req.method === 'GET' && !url.startsWith('/api') && url !== '/description.xml') {
       const file = path.join(assets, url === '/' ? 'index.html' : path.normalize(url));
       if (!file.startsWith(assets) || !fs.existsSync(file)) return send(404, 'not found', 'text/plain');

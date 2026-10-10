@@ -7,6 +7,9 @@ phone or any web browser.
 There's no account, no cloud, no ads and no tracking. It only talks to the bridge on
 your own network, using the bridge's local v1 API (the only API the v1 bridge has).
 
+**Use it in your browser, nothing to install:** <https://funkedope.github.io/hue-remote/>
+(Chrome or Edge on a computer; see [Browser version](#browser-version-no-install)).
+
 <p>
   <img src="docs/screenshots/lights.png" width="220" alt="Lights screen with All lights, Left and Right cards">
   <img src="docs/screenshots/custom-color.png" width="220" alt="Hue and saturation sliders opened on a light">
@@ -16,7 +19,7 @@ your own network, using the bridge's local v1 API (the only API the v1 bridge ha
   <img src="docs/screenshots/desktop.png" width="672" alt="The web version in a desktop browser">
 </p>
 
-**Download:** the APK and the web version are attached to each
+**Download:** the Android APK and the Node.js web version are attached to each
 [release](https://github.com/FunkeDope/hue-remote/releases). What changed in each
 version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
@@ -24,6 +27,7 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 - [Features](#features)
 - [What it works with](#what-it-works-with)
+- [Browser version (no install)](#browser-version-no-install)
 - [Android app](#android-app)
 - [Web version (Node.js)](#web-version-nodejs)
 - [Using it](#using-it)
@@ -36,8 +40,8 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Features
 
-- **Pairing:** type the bridge's IP or let it search the network, then press the
-  bridge's link button.
+- **Pairing:** type the bridge's IP (or, in the app and the Node version, let it search
+  the network), then press the bridge's link button.
 - **Per light:** a power switch, brightness, 10 color presets, and hue and saturation
   sliders for any other color.
 - **All lights at once:** an "All lights" card, plus All on and All off buttons.
@@ -47,7 +51,8 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
   within 10 seconds.
 - **Bridge info:** name, model, firmware, API version and Zigbee channel. You can also
   pair a different bridge or forget this one.
-- **Two versions, one UI:** the Android app and the web version run the same HTML/JS.
+- **Three ways to run it, one UI:** the website, the Android app and the Node.js web
+  version all run the same HTML/JS.
 - **Tiny:** the APK is about 36 KB, and the web version has no npm dependencies.
 
 ## What it works with
@@ -57,7 +62,32 @@ version is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 | **Bridge** | Hue bridge v1 (round, `BSB001`) on its final firmware, `01043155` / API `1.16.0`. The v2 (square) bridge still serves the same local v1 API, so it should work too, but that hasn't been tested. |
 | **Lights** | Color lights (Bloom, Iris, LivingColors, color bulbs), white-ambiance bulbs, dimmable white bulbs and smart plugs. Tested with Hue Living Colors Bloom (`LLC011`). |
 | **Android** | 5.0 (Lollipop) or newer. |
+| **Browser version** | Chrome or Edge 142 or newer on a computer. Firefox may work but hasn't been confirmed, and Chrome on Android hasn't been tested. Safari (Mac, iPhone, iPad) can't reach devices on your network from a website. |
 | **Web version** | Node.js 18 or newer on Windows, macOS or Linux, and any current browser (built and tested with Chrome). |
+
+## Browser version (no install)
+
+Open **<https://funkedope.github.io/hue-remote/>** in Chrome or Edge on a computer
+that's on the same network as the bridge. Anyone can use the same link; each person
+pairs with their own bridge.
+
+1. Type the bridge's IP address. A web page can't search the network, but your
+   router's list of connected devices shows it.
+2. Click **Pair**. When the browser asks to let the site access devices on your local
+   network, choose **Allow**.
+3. Press the round button on top of the bridge within 30 seconds.
+
+The pairing is saved in that browser's localStorage, so next time the page opens
+straight to your lights. There's no account and no server behind it: the page is a few
+static files on GitHub Pages, and your browser talks directly to your bridge.
+
+**Why this works at all:** the site is HTTPS, but the v1 bridge only speaks plain HTTP,
+which browsers normally block from secure pages. Chrome and Edge 142+ make an exception
+for devices on your local network once you allow the site to access them (their Local
+Network Access permission). The bridge also has to tell the browser that other websites
+may read its replies (CORS), which Hue bridges do with `Access-Control-Allow-Origin: *`.
+If it doesn't work for you, see
+[the troubleshooting entry](#the-website-says-no-bridge-answered).
 
 ## Android app
 
@@ -155,18 +185,21 @@ lights.
 
 ## How it works
 
-The UI in [`web/`](web) is plain HTML, CSS and JavaScript. It does everything through a
-small `window.Native` object, which each version provides:
+The UI in [`web/`](web) is plain HTML, CSS and JavaScript. In the Android app and the
+Node version it does everything through a small `window.Native` object. On the website
+there isn't one, so the page calls the bridge itself:
 
 ```
 Android:  web/ in a WebView ──window.Native──▶ MainActivity.java ──HTTP──▶ bridge
-Browser:  web/ + shim.js    ──POST /native/*─▶ server/server.js  ──HTTP──▶ bridge
+Node:     web/ + shim.js    ──POST /native/*─▶ server/server.js  ──HTTP──▶ bridge
+Website:  web/ on GitHub Pages ──fetch()──────────────────────────────────▶ bridge
 ```
 
 `window.Native` has five methods: `http` (send a request to the bridge), `discover`
 (find bridges), `getPref` and `setPref` (saved settings), and `deviceName`. Going
 through it sidesteps CORS and Android's cleartext rules, and lets discovery use UDP,
-which a web page can't.
+which a web page can't. Without it, the page uses `fetch()` (marked as a local network
+request for Chrome) and `localStorage`, and hides **Search network**.
 
 The Hue v1 API calls it makes:
 
@@ -186,11 +219,15 @@ never sent twice at once for the same light.
 ## Privacy and security
 
 - **What's stored:** the bridge's IP address and the username it issued at pairing. On
-  Android that's in the app's private storage. In the web version it's
-  `server/config.json`.
+  Android that's in the app's private storage. On the website it's that browser's
+  localStorage. In the Node version it's `server/config.json`.
 - **Network traffic:** only to the bridge. Search sends one SSDP multicast and, if
   nothing answers, requests `/description.xml` from each address on your subnet.
   Nothing goes to the internet.
+- **Website:** your browser downloads the page from GitHub Pages like any other site,
+  then talks only to your bridge. Your bridge's address, pairing and lights never go to
+  GitHub or anywhere else. The page's Content-Security-Policy only allows its own
+  scripts and styles.
 - **Web server:**
   - Listens on `127.0.0.1` only, unless you start it with `--lan`.
   - Only forwards requests to `/api` on a private (LAN) IP address. With `--lan`, it
@@ -223,6 +260,12 @@ with `~/.android/debug.keystore`, creating it if needed, unless you set `KEYSTOR
 ### Web version
 
 There's nothing to build. `npm start` runs it straight from the source.
+
+### Website
+
+`npm run site` copies `web/` into `site/` and adds the Content-Security-Policy. Every
+push to `main` that changes `web/` publishes it to GitHub Pages through
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ### Tests and the fake bridge
 
@@ -278,19 +321,34 @@ android/
   src/life/skiddie/hueremote/MainActivity.java   WebView host: HTTP, discovery, settings
   res/                                           app name, theme, launcher icon
   build.sh                                       builds the APK (no Gradle)
-web/                                             the UI, shared by both versions
+web/                                             the UI, shared by all three versions
   index.html  style.css  app.js  icon.svg
 server/
   server.js                                      web version: serves web/, relays to the bridge
   shim.js                                        window.Native for the browser
 dev/mock-bridge.js                               fake v1 bridge for development and tests
+scripts/build-site.js                            builds the website (npm run site)
 test/server.test.js                              npm test
 docs/screenshots/
-.github/workflows/release.yml                    builds and publishes releases from tags
+.github/workflows/pages.yml                      publishes the website to GitHub Pages
+.github/workflows/release.yml                    builds and publishes releases on version bumps
 RELEASE_NOTES.md
 ```
 
 ## Troubleshooting
+
+### The website says "No bridge answered"
+- Use Chrome or Edge 142 or newer on a computer, on the same network as the bridge.
+- If you blocked the local network prompt, click the icon at the left of the address
+  bar, open the site settings, set **Local network access** to **Allow**, and reload.
+- Check that your bridge allows other websites to read its replies. In PowerShell:
+
+  ```powershell
+  (Invoke-WebRequest http://<bridge-ip>/api/config -UseBasicParsing).Headers['Access-Control-Allow-Origin']
+  ```
+
+  It should print `*`. If it prints nothing, the website can't work with that bridge;
+  use the Android app or the Node version instead.
 
 ### "No bridge answered at …"
 Check the IP address, and that the phone or computer is on the same network as the
